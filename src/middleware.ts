@@ -16,6 +16,7 @@ function normalizeOrigin(value: string | undefined): string | null {
 
 function getInternalBaseUrl(): string {
   return (
+    normalizeOrigin(process.env.CABINET_INTERNAL_APP_ORIGIN) ||
     normalizeOrigin(process.env.CABINET_APP_ORIGIN) ||
     `http://127.0.0.1:${process.env.PORT || "3000"}`
   );
