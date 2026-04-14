@@ -1,6 +1,9 @@
 [phases.setup]
 nixPkgs = ["nodejs_22", "python3", "gcc", "gnumake", "pkg-config"]
 
+[start]
+cmd = "bash scripts/docker-entrypoint.sh"
+
 [variables]
 PYTHON = "python3"
 npm_config_python = "python3"

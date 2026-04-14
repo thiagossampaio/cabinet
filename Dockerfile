@@ -22,4 +22,4 @@ RUN npm run build
 
 EXPOSE 3000 3001
 
-CMD ["npm", "run", "start"]
+CMD ["/bin/bash", "scripts/docker-entrypoint.sh"]

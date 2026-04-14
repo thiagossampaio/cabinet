@@ -1,5 +1,7 @@
 # Progress
 
+[2026-04-14] Fix CLI availability in nixpacks containers: created `scripts/docker-entrypoint.sh` that installs `@anthropic-ai/claude-code` and `@openai/codex` via `npm install -g --prefix /usr/local` if not already present, then starts the app. Updated `nixpacks.toml` to use this script as the start command and `Dockerfile` CMD to point to it. Works in both build environments — Dockerfile pre-installs the CLIs during image build (fast), nixpacks installs them on first container startup.
+
 [2026-04-14] Add Dockerfile with Claude Code CLI and Codex CLI pre-installed: created `Dockerfile` using `node:22-slim` base that installs native build tools, runs `npm ci`, installs `@anthropic-ai/claude-code` and `@openai/codex` globally (landing in `/usr/local/bin` — already searched by `terminal-server.ts` and `cabinet-daemon.ts`), builds the Next.js app, and starts both servers. Updated `.dockerignore` to exclude Electron-specific files. Coolify will detect this Dockerfile and use it instead of nixpacks.
 
 [2026-04-14] Fix Coolify/Nixpacks build failure caused by node-pty (and better-sqlite3) failing to compile on Linux: created `nixpacks.toml` to include `python3`, `gcc`, `gnumake`, and `pkg-config` in the Nix setup phase, and `.npmrc` with `python=python3` so node-gyp resolves Python reliably during `npm ci`.
