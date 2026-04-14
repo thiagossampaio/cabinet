@@ -58,14 +58,20 @@ interface IntegrationConfig {
   };
 }
 
-type Tab = "providers" | "integrations" | "notifications" | "appearance" | "updates";
+type Tab = "general" | "providers" | "integrations" | "notifications" | "appearance" | "updates";
 
 export function SettingsPage() {
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [defaultProvider, setDefaultProvider] = useState("");
   const [loading, setLoading] = useState(true);
   const [savingProviders, setSavingProviders] = useState(false);
-  const [tab, setTab] = useState<Tab>("providers");
+  const [tab, setTab] = useState<Tab>("general");
+
+  // General tab state
+  const [reposBaseDir, setReposBaseDir] = useState("");
+  const [reposBaseDirDefault, setReposBaseDirDefault] = useState("");
+  const [savingGeneral, setSavingGeneral] = useState(false);
+  const [generalSaved, setGeneralSaved] = useState(false);
   const [config, setConfig] = useState<IntegrationConfig | null>(null);
   const [configLoading, setConfigLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -208,7 +214,33 @@ export function SettingsPage() {
   useEffect(() => {
     refresh();
     loadConfig();
+    // Load general (company) config
+    fetch("/api/agents/config")
+      .then((r) => r.json())
+      .then((data) => {
+        setReposBaseDir(data.repos_base_dir ?? "");
+        setReposBaseDirDefault(data._defaultReposBaseDir ?? "");
+      })
+      .catch(() => {});
   }, [refresh, loadConfig]);
+
+  const saveGeneral = async () => {
+    setSavingGeneral(true);
+    try {
+      const current = await fetch("/api/agents/config").then((r) => r.json()).catch(() => ({}));
+      await fetch("/api/agents/config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...current, repos_base_dir: reposBaseDir.trim() }),
+      });
+      setGeneralSaved(true);
+      setTimeout(() => setGeneralSaved(false), 2000);
+    } catch {
+      // ignore
+    } finally {
+      setSavingGeneral(false);
+    }
+  };
 
   const toggleReveal = (key: string) => {
     setRevealedKeys((prev) => {
@@ -265,6 +297,7 @@ export function SettingsPage() {
   };
 
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
+    { id: "general", label: "General", icon: <Settings className="h-3.5 w-3.5" /> },
     { id: "providers", label: "Providers", icon: <Cpu className="h-3.5 w-3.5" /> },
     { id: "integrations", label: "Integrations", icon: <Plug className="h-3.5 w-3.5" /> },
     { id: "notifications", label: "Notifications", icon: <Bell className="h-3.5 w-3.5" /> },
@@ -285,24 +318,6 @@ export function SettingsPage() {
           </h2>
         </div>
         <div className="flex items-center gap-1.5">
-          {(tab === "integrations" || tab === "notifications") && (
-            <Button
-              variant={saved ? "default" : "outline"}
-              size="sm"
-              className={cn("h-7 gap-1.5 text-[12px]", saved && "bg-emerald-600 hover:bg-emerald-700 text-white")}
-              onClick={saveConfig}
-              disabled={saving}
-            >
-              {saving ? (
-                <Loader2 className="h-3 w-3 animate-spin" />
-              ) : saved ? (
-                <CheckCircle className="h-3 w-3" />
-              ) : (
-                <Save className="h-3 w-3" />
-              )}
-              {saving ? "Saving..." : saved ? "Saved" : "Save"}
-            </Button>
-          )}
           <Button
             variant="ghost"
             size="sm"
@@ -336,6 +351,43 @@ export function SettingsPage() {
 
       <ScrollArea className="flex-1">
         <div className="p-4 space-y-6 max-w-2xl">
+          {/* General Tab */}
+          {tab === "general" && (
+            <div className="space-y-6">
+              <div>
+                <h3 className="text-[13px] font-semibold mb-1">Repository Clone Directory</h3>
+                <p className="text-[12px] text-muted-foreground mb-3">
+                  Absolute path where team repositories will be cloned when using the &quot;Clone&quot;
+                  feature in Team Settings. Leave empty to use the default:{" "}
+                  <code className="font-mono text-[11px] bg-muted px-1 py-0.5 rounded">
+                    {reposBaseDirDefault || `{data_dir}/repos`}
+                  </code>
+                </p>
+                <div className="rounded-md border border-amber-400/30 bg-amber-400/5 px-3 py-2.5 mb-3">
+                  <p className="text-[12px] text-amber-500 leading-relaxed">
+                    <strong>Warning:</strong> Changing this path after teams have already cloned repositories
+                    will break access to their knowledge bases. Each affected team&apos;s knowledge base path
+                    would need to be updated manually in Team Settings.
+                  </p>
+                </div>
+                <input
+                  type="text"
+                  value={reposBaseDir}
+                  onChange={(e) => setReposBaseDir(e.target.value)}
+                  placeholder={reposBaseDirDefault || "/path/to/repos"}
+                  className="w-full px-3 py-2 rounded-md border border-border bg-background font-mono text-[13px] focus:outline-none focus:ring-2 focus:ring-primary/50"
+                />
+              </div>
+
+              <div className="border-t border-border pt-4">
+                <h3 className="text-[13px] font-semibold mb-1">About</h3>
+                <p className="text-[12px] text-muted-foreground">Cabinet — AI-first Company OS</p>
+                <p className="text-[12px] text-muted-foreground">Version 0.1.0</p>
+                <p className="text-[12px] text-muted-foreground">Powered by local AI CLIs</p>
+              </div>
+            </div>
+          )}
+
           {/* Appearance Tab */}
           {tab === "appearance" && (
             <div className="space-y-6">
@@ -1043,6 +1095,54 @@ export function SettingsPage() {
           )}
         </div>
       </ScrollArea>
+
+      {/* Sticky save footer — General tab */}
+      {tab === "general" && (
+        <div className="border-t border-border bg-background px-4 py-3 flex items-center justify-between shrink-0">
+          <p className="text-[12px] text-muted-foreground">
+            {generalSaved ? "Changes saved." : "Save your changes before switching tabs."}
+          </p>
+          <Button
+            size="sm"
+            onClick={saveGeneral}
+            disabled={savingGeneral}
+            className={cn("h-7 gap-1.5 text-[12px]", generalSaved && "bg-emerald-600 hover:bg-emerald-700 text-white")}
+          >
+            {savingGeneral ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : generalSaved ? (
+              <CheckCircle className="h-3 w-3" />
+            ) : (
+              <Save className="h-3 w-3" />
+            )}
+            {savingGeneral ? "Saving..." : generalSaved ? "Saved" : "Save changes"}
+          </Button>
+        </div>
+      )}
+
+      {/* Sticky save footer — Integrations & Notifications tabs */}
+      {(tab === "integrations" || tab === "notifications") && (
+        <div className="border-t border-border bg-background px-4 py-3 flex items-center justify-between shrink-0">
+          <p className="text-[12px] text-muted-foreground">
+            {saved ? "Changes saved." : "Save your changes before switching tabs."}
+          </p>
+          <Button
+            size="sm"
+            onClick={saveConfig}
+            disabled={saving}
+            className={cn("h-7 gap-1.5 text-[12px]", saved && "bg-emerald-600 hover:bg-emerald-700 text-white")}
+          >
+            {saving ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : saved ? (
+              <CheckCircle className="h-3 w-3" />
+            ) : (
+              <Save className="h-3 w-3" />
+            )}
+            {saving ? "Saving..." : saved ? "Saved" : "Save changes"}
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

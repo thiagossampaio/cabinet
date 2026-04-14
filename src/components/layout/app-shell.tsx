@@ -18,6 +18,7 @@ import { StatusBar } from "@/components/layout/status-bar";
 import { PresenceProvider } from "@/components/presence/presence-provider";
 import { OnboardingWizard } from "@/components/onboarding/onboarding-wizard";
 import { UpdateDialog } from "@/components/layout/update-dialog";
+import { NoTeamsScreen } from "@/components/teams/no-teams-screen";
 import { useCabinetUpdate } from "@/hooks/use-cabinet-update";
 import { useTreeStore } from "@/stores/tree-store";
 import { useAppStore } from "@/stores/app-store";
@@ -44,6 +45,7 @@ export function AppShell() {
   const section = useAppStore((s) => s.section);
   const setSection = useAppStore((s) => s.setSection);
   const setTeams = useAppStore((s) => s.setTeams);
+  const teams = useAppStore((s) => s.teams);
   const currentTeamSlug = useAppStore((s) => s.currentTeamSlug);
   const terminalOpen = useAppStore((s) => s.terminalOpen);
   const setSidebarCollapsed = useAppStore((s) => s.setSidebarCollapsed);
@@ -64,6 +66,7 @@ export function AppShell() {
 
   // Onboarding wizard state
   const [showWizard, setShowWizard] = useState<boolean | null>(null);
+  const [teamsLoaded, setTeamsLoaded] = useState(false);
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
   const [dismissedUpdateVersion, setDismissedUpdateVersion] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
@@ -77,8 +80,8 @@ export function AppShell() {
   // Load user's teams on mount; team selection triggers tree reload
   useEffect(() => {
     fetchUserTeams()
-      .then((teams) => setTeams(teams))
-      .catch(() => {/* no teams (legacy mode) */});
+      .then((teams) => { setTeams(teams); setTeamsLoaded(true); })
+      .catch(() => setTeamsLoaded(true)); // legacy mode — no teams is valid
   }, [setTeams]);
 
   // Reload tree whenever active team changes; clear stale selection immediately
@@ -112,6 +115,14 @@ export function AppShell() {
     setSection({ type: "agents" });
     loadTree();
   }, [setSection, loadTree]);
+
+  const handleTeamsLoaded = useCallback(
+    (teams: { id: string; name: string; slug: string; role: string }[]) => {
+      setTeams(teams);
+      loadTree();
+    },
+    [setTeams, loadTree]
+  );
 
   function handleUpdateLater() {
     const latestVersion = update?.latest?.version;
@@ -240,6 +251,11 @@ export function AppShell() {
   // Show onboarding wizard for first-time users
   if (showWizard) {
     return <OnboardingWizard onComplete={handleWizardComplete} />;
+  }
+
+  // Show no-teams screen when user has no team memberships
+  if (teamsLoaded && teams.length === 0) {
+    return <NoTeamsScreen onTeamsLoaded={handleTeamsLoaded} />;
   }
 
   return (

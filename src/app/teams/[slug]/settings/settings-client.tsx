@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { authClient } from "@/lib/auth-client";
-import { Trash2, UserMinus, Shield, User } from "lucide-react";
+import { Trash2, UserMinus, Shield, User, GitBranch, Loader2, CheckCircle, XCircle } from "lucide-react";
 import { fetchUserTeams } from "@/lib/api/client";
 import { useAppStore } from "@/stores/app-store";
 
@@ -22,6 +22,7 @@ interface Team {
   slug: string;
   kbPath: string | null;
   effectivePath: string;
+  githubRepoUrl: string | null;
 }
 
 interface TeamSettingsClientProps {
@@ -47,6 +48,16 @@ export function TeamSettingsClient({ slug }: TeamSettingsClientProps) {
   const [saving, setSaving] = useState(false);
   const [inviting, setInviting] = useState(false);
 
+  // Repository state
+  const [repoUrl, setRepoUrl] = useState("");
+  const [savingRepo, setSavingRepo] = useState(false);
+  const [cloneModalOpen, setCloneModalOpen] = useState(false);
+  const [cloning, setCloning] = useState(false);
+  const [cloneLogs, setCloneLogs] = useState<string[]>([]);
+  const [cloneStatus, setCloneStatus] = useState<"idle" | "running" | "success" | "error">("idle");
+  const [cloneError, setCloneError] = useState("");
+  const logsEndRef = useRef<HTMLDivElement>(null);
+
   const myRole = members.find((m) => m.id === session?.user?.id)?.role;
   const isAdmin = myRole === "admin";
 
@@ -67,6 +78,7 @@ export function TeamSettingsClient({ slug }: TeamSettingsClientProps) {
         setName(t.name);
         setKbPath(t.kbPath ?? "");
         setEffectivePath(t.effectivePath ?? "");
+        setRepoUrl(t.githubRepoUrl ?? "");
         setMembers(m);
       } catch {
         router.push("/");
@@ -76,6 +88,11 @@ export function TeamSettingsClient({ slug }: TeamSettingsClientProps) {
     }
     load();
   }, [slug, router]);
+
+  // Auto-scroll logs
+  useEffect(() => {
+    logsEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [cloneLogs]);
 
   const handleRename = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -155,6 +172,97 @@ export function TeamSettingsClient({ slug }: TeamSettingsClientProps) {
     }
   };
 
+  const handleSaveRepoUrl = async () => {
+    setSavingRepo(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/teams/${slug}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ github_repo_url: repoUrl.trim() || null }),
+      });
+      if (!res.ok) {
+        const d = await res.json();
+        setError(d.error ?? "Failed to save repository URL");
+        return;
+      }
+      const { team: t } = await res.json();
+      setTeam(t);
+      setRepoUrl(t.githubRepoUrl ?? "");
+    } catch {
+      setError("Connection error");
+    } finally {
+      setSavingRepo(false);
+    }
+  };
+
+  const handleClone = async () => {
+    // Save URL first if it changed
+    if (repoUrl.trim() !== (team?.githubRepoUrl ?? "")) {
+      await handleSaveRepoUrl();
+    }
+
+    setCloneLogs([]);
+    setCloneError("");
+    setCloneStatus("running");
+    setCloning(true);
+    setCloneModalOpen(true);
+
+    try {
+      const res = await fetch(`/api/teams/${slug}/git/clone`, { method: "POST" });
+
+      if (!res.body) {
+        throw new Error("No response body");
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          try {
+            const payload = JSON.parse(line.slice(6));
+            if (payload.log) {
+              setCloneLogs((prev) => [...prev, payload.log as string]);
+            }
+            if (payload.done) {
+              if (payload.success) {
+                setCloneStatus("success");
+                // Reload team data so KB path updates
+                const teamRes = await fetch(`/api/teams/${slug}`);
+                if (teamRes.ok) {
+                  const { team: t } = await teamRes.json();
+                  setTeam(t);
+                  setKbPath(t.kbPath ?? "");
+                  setEffectivePath(t.effectivePath ?? "");
+                }
+              } else {
+                setCloneStatus("error");
+                setCloneError(payload.error ?? "Clone failed");
+              }
+            }
+          } catch {
+            // ignore malformed SSE line
+          }
+        }
+      }
+    } catch (err) {
+      setCloneStatus("error");
+      setCloneError(err instanceof Error ? err.message : "Clone failed");
+    } finally {
+      setCloning(false);
+    }
+  };
+
   const handleInvite = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!inviteEmail.trim()) return;
@@ -172,7 +280,6 @@ export function TeamSettingsClient({ slug }: TeamSettingsClientProps) {
         return;
       }
       setInviteEmail("");
-      // Reload members
       const membersRes = await fetch(`/api/teams/${slug}/members`);
       const { members: m } = await membersRes.json();
       setMembers(m);
@@ -267,6 +374,48 @@ export function TeamSettingsClient({ slug }: TeamSettingsClientProps) {
               </button>
             )}
           </form>
+        </section>
+
+        {/* Repository */}
+        <section className="space-y-4">
+          <h2 className="text-sm font-semibold">Repository</h2>
+          <p className="text-[12px] text-muted-foreground">
+            Enter the SSH URL of the GitHub repository to clone as this team&apos;s knowledge base.
+            The clone will use your <strong>GitHub OAuth account</strong> — you must have read access
+            to the repository. The repository will be cloned into the directory configured in
+            platform Settings → General.
+          </p>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={repoUrl}
+              onChange={(e) => setRepoUrl(e.target.value)}
+              disabled={!isAdmin}
+              placeholder="git@github.com:org/repo.git"
+              className="flex-1 px-3 py-2 rounded-md border border-border bg-background font-mono text-[13px] focus:outline-none focus:ring-2 focus:ring-primary/50 disabled:opacity-50"
+            />
+            {isAdmin && (
+              <>
+                <button
+                  type="button"
+                  onClick={handleSaveRepoUrl}
+                  disabled={savingRepo || repoUrl === (team?.githubRepoUrl ?? "")}
+                  className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-[14px] font-medium hover:bg-primary/90 transition-colors disabled:opacity-50"
+                >
+                  {savingRepo ? "Saving..." : "Save"}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleClone}
+                  disabled={!repoUrl.trim() || cloning}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-md border border-border text-[14px] font-medium hover:bg-muted transition-colors disabled:opacity-50"
+                >
+                  <GitBranch className="h-3.5 w-3.5" />
+                  Clone
+                </button>
+              </>
+            )}
+          </div>
         </section>
 
         {/* Knowledge Base */}
@@ -413,6 +562,57 @@ export function TeamSettingsClient({ slug }: TeamSettingsClientProps) {
           </section>
         )}
       </div>
+
+      {/* Clone Progress Modal */}
+      {cloneModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="w-full max-w-2xl mx-4 rounded-lg border border-border bg-background shadow-2xl flex flex-col">
+            {/* Modal header */}
+            <div className="flex items-center gap-3 px-5 py-4 border-b border-border">
+              {cloning && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground shrink-0" />}
+              {cloneStatus === "success" && <CheckCircle className="h-4 w-4 text-green-500 shrink-0" />}
+              {cloneStatus === "error" && <XCircle className="h-4 w-4 text-red-400 shrink-0" />}
+              <h2 className="text-[14px] font-semibold flex-1">
+                {cloning
+                  ? "Cloning repository…"
+                  : cloneStatus === "success"
+                  ? "Clone successful"
+                  : "Clone failed"}
+              </h2>
+            </div>
+
+            {/* Log area */}
+            <div className="h-80 overflow-y-auto bg-[#0d1117] rounded-none p-4 font-mono text-[12px] leading-relaxed">
+              {cloneLogs.length === 0 && cloning && (
+                <span className="text-muted-foreground">Starting clone…</span>
+              )}
+              {cloneLogs.map((line, i) => (
+                <div key={i} className="text-[#c9d1d9] whitespace-pre-wrap">{line}</div>
+              ))}
+              {cloneStatus === "error" && cloneError && (
+                <div className="text-red-400 mt-2">{cloneError}</div>
+              )}
+              <div ref={logsEndRef} />
+            </div>
+
+            {/* Modal footer */}
+            <div className="flex items-center justify-end px-5 py-3 border-t border-border gap-3">
+              {cloneStatus === "success" && (
+                <p className="text-[12px] text-green-500 flex-1">
+                  Repository cloned. Knowledge base path updated automatically.
+                </p>
+              )}
+              <button
+                onClick={() => setCloneModalOpen(false)}
+                disabled={cloning}
+                className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-[13px] font-medium hover:bg-primary/90 transition-colors disabled:opacity-50"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

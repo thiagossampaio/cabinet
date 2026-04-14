@@ -16,14 +16,15 @@ export async function GET(
     const ctx = await requireTeamContext(slug);
     const db = getDb();
     const row = db
-      .prepare("SELECT id, name, slug, created_at, data_dir_override FROM teams WHERE id = ?")
-      .get(ctx.teamId) as { id: string; name: string; slug: string; created_at: string; data_dir_override: string | null } | undefined;
+      .prepare("SELECT id, name, slug, created_at, data_dir_override, github_repo_url FROM teams WHERE id = ?")
+      .get(ctx.teamId) as { id: string; name: string; slug: string; created_at: string; data_dir_override: string | null; github_repo_url: string | null } | undefined;
     if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 });
     return NextResponse.json({
       team: {
         ...row,
         kbPath: row.data_dir_override ?? null,
         effectivePath: getTeamDataDir(slug),
+        githubRepoUrl: row.github_repo_url ?? null,
       },
     });
   } catch (err) {
@@ -43,9 +44,9 @@ export async function PATCH(
     }
 
     const body = await req.json();
-    const { name, kbPath } = body as { name?: string; kbPath?: string | null };
+    const { name, kbPath, github_repo_url } = body as { name?: string; kbPath?: string | null; github_repo_url?: string | null };
 
-    if (name === undefined && kbPath === undefined) {
+    if (name === undefined && kbPath === undefined && github_repo_url === undefined) {
       return NextResponse.json({ error: "Nothing to update" }, { status: 400 });
     }
 
@@ -69,15 +70,23 @@ export async function PATCH(
       db.prepare("UPDATE teams SET name = ? WHERE id = ?").run(name.trim(), ctx.teamId);
     }
 
+    if (github_repo_url !== undefined) {
+      db.prepare("UPDATE teams SET github_repo_url = ? WHERE id = ?").run(
+        github_repo_url ?? null,
+        ctx.teamId
+      );
+    }
+
     const row = db
-      .prepare("SELECT id, name, slug, created_at, data_dir_override FROM teams WHERE id = ?")
-      .get(ctx.teamId) as { id: string; name: string; slug: string; created_at: string; data_dir_override: string | null } | undefined;
+      .prepare("SELECT id, name, slug, created_at, data_dir_override, github_repo_url FROM teams WHERE id = ?")
+      .get(ctx.teamId) as { id: string; name: string; slug: string; created_at: string; data_dir_override: string | null; github_repo_url: string | null } | undefined;
     if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 });
     return NextResponse.json({
       team: {
         ...row,
         kbPath: row.data_dir_override ?? null,
         effectivePath: getTeamDataDir(slug),
+        githubRepoUrl: row.github_repo_url ?? null,
       },
     });
   } catch (err) {

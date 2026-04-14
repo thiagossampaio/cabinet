@@ -61,6 +61,7 @@ import { NewPageDialog } from "./new-page-dialog";
 import { LinkRepoDialog } from "./link-repo-dialog";
 import { TeamSwitcher } from "@/components/layout/team-switcher";
 import { UserMenu } from "@/components/layout/user-menu";
+import { NotificationBell } from "@/components/notifications/notification-bell";
 import { useAppStore } from "@/stores/app-store";
 import { useTreeStore } from "@/stores/tree-store";
 
@@ -450,6 +451,7 @@ export function Sidebar() {
             <div className="flex-1">
               <NewPageDialog />
             </div>
+            <NotificationBell />
             <Button
               variant="ghost"
               size="icon"
