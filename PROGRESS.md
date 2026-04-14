@@ -1,5 +1,7 @@
 # Progress
 
+[2026-04-14] Fix Coolify/Nixpacks build failure caused by node-pty (and better-sqlite3) failing to compile on Linux: created `nixpacks.toml` to include `python3`, `gcc`, `gnumake`, and `pkg-config` in the Nix setup phase, and `.npmrc` with `python=python3` so node-gyp resolves Python reliably during `npm ci`.
+
 [2026-04-14] Fix submodule authentication to use OAuth token via inherited env vars: replaced `-c url.insteadOf` flags in `initSubmodules()` with `GIT_CONFIG_COUNT/KEY_N/VALUE_N` environment variables. Unlike `-c` flags (which apply only to the single git invocation), env vars are inherited by all child git processes that `git submodule update --init --recursive` spawns for each submodule. Now covers all three GitHub URL formats: `https://github.com/`, `git@github.com:`, and `ssh://git@github.com/`.
 
 [2026-04-14] Checkout main branch after clone in root repo and all submodules: after initSubmodules(), a new checkoutMain() step runs git checkout main in the root repository and git submodule foreach --recursive to do the same in every submodule. Submodules without a main branch are skipped with a log message (non-fatal). A private spawnGit() helper was extracted to avoid code duplication in team-fs.ts.
