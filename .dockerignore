@@ -7,3 +7,6 @@ data
 !CLAUDE.md
 .env
 .env.local
+electron/
+forge.config.cjs
+scripts/prepare-electron-package.mjs
