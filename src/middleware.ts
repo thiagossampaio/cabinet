@@ -8,6 +8,20 @@ function isPublicPath(pathname: string): boolean {
   return PUBLIC_PREFIXES.some((prefix) => pathname.startsWith(prefix));
 }
 
+function normalizeOrigin(value: string | undefined): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+  return trimmed.replace(/\/+$/, "");
+}
+
+function getInternalBaseUrl(): string {
+  return (
+    normalizeOrigin(process.env.CABINET_INTERNAL_APP_ORIGIN) ||
+    normalizeOrigin(process.env.CABINET_APP_ORIGIN) ||
+    `http://127.0.0.1:${process.env.PORT || "3000"}`
+  );
+}
+
 async function hashToken(password: string): Promise<string> {
   const encoder = new TextEncoder();
   const data = encoder.encode(password + "cabinet-salt");
@@ -44,7 +58,7 @@ export async function middleware(request: NextRequest) {
   const { data: session } = await betterFetch<{ user: { id: string } }>(
     "/api/auth/get-session",
     {
-      baseURL: request.nextUrl.origin,
+      baseURL: getInternalBaseUrl(),
       headers: { cookie: request.headers.get("cookie") ?? "" },
     }
   );
