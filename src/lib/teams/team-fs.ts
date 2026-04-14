@@ -116,10 +116,32 @@ export async function cloneTeamRepo(
 }
 
 /**
+ * Builds environment variables that rewrite all GitHub URL variants to an
+ * authenticated HTTPS URL. These env vars are inherited by child git processes,
+ * unlike -c flags which are scoped only to the single git invocation they are
+ * passed to and are NOT propagated to subprocesses.
+ */
+function buildAuthEnv(token: string): NodeJS.ProcessEnv {
+  const authBase = `https://x-oauth-basic:${token}@github.com/`;
+  return {
+    ...process.env,
+    GIT_TERMINAL_PROMPT: "0",
+    GIT_CONFIG_COUNT: "3",
+    GIT_CONFIG_KEY_0: `url.${authBase}.insteadOf`,
+    GIT_CONFIG_VALUE_0: "https://github.com/",
+    GIT_CONFIG_KEY_1: `url.${authBase}.insteadOf`,
+    GIT_CONFIG_VALUE_1: "git@github.com:",
+    GIT_CONFIG_KEY_2: `url.${authBase}.insteadOf`,
+    GIT_CONFIG_VALUE_2: "ssh://git@github.com/",
+  };
+}
+
+/**
  * Initialises git submodules recursively in the given directory.
  * Only runs if a .gitmodules file is present.
- * Uses the OAuth token to authenticate both HTTPS and SSH submodule URLs via
- * inline `url.<auth>.insteadOf` config — nothing is persisted to disk.
+ * Uses GIT_CONFIG_COUNT/KEY_N/VALUE_N env vars (git 2.31+) to authenticate
+ * all GitHub URL variants (HTTPS, SSH, ssh://) via the user's OAuth token.
+ * Env vars are inherited by all child git processes spawned for each submodule.
  */
 export async function initSubmodules(
   targetDir: string,
@@ -133,19 +155,13 @@ export async function initSubmodules(
 
   onProgress("Submodules detected. Running git submodule update --init --recursive…");
 
-  const authenticatedBase = `https://x-oauth-basic:${token}@github.com/`;
-
   return new Promise((resolve, reject) => {
     const proc = spawn(
       "git",
-      [
-        "-c", `url.${authenticatedBase}.insteadOf=https://github.com/`,
-        "-c", `url.${authenticatedBase}.insteadOf=git@github.com:`,
-        "submodule", "update", "--init", "--recursive", "--progress",
-      ],
+      ["submodule", "update", "--init", "--recursive", "--progress"],
       {
         cwd: targetDir,
-        env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+        env: buildAuthEnv(token),
       }
     );
 
